@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEURAL TOPOLOGY — Memory Reconstruction</title>
+    <style>
+    :root {
+        --bg: #f3f1ec;            /* warm paper background (matches homepage) */
+        --paper: #ffffff;        /* white node background */
+        --black: #000;           /* pure black borders/shadows/edges */
+        --ink: #111110;          /* text */
+        --accent: #1f3bff;       /* accent blue (matches homepage) */
+        --glass: rgba(255,255,255,.36);
+        --glass-bd: rgba(255,255,255,.75);
+        --mono: ui-monospace, "SFMono-Regular", "Roboto Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+                 font-family: var(--mono); }
+
+    /* [bottom layer] pink/purple/blue gradient noise (same as homepage), drifting slowly */
+    #aura {
+        position: fixed; inset: 0; z-index: 0; pointer-events: none;
+        background:
+            radial-gradient(50vw 50vw at 18% 22%, rgba(255,178,210,.24), transparent 70%),
+            radial-gradient(46vw 46vw at 82% 28%, rgba(170,150,255,.24), transparent 70%),
+            radial-gradient(54vw 54vw at 66% 90%, rgba(150,190,255,.22), transparent 72%),
+            radial-gradient(40vw 40vw at 30% 86%, rgba(255,206,186,.18), transparent 70%);
+        filter: blur(10px);
+        animation: auraDrift 28s ease-in-out infinite alternate;
+    }
+    @keyframes auraDrift {
+        from { transform: translate3d(-2%, 1%, 0) scale(1.05); }
+        to   { transform: translate3d(2%, -1%, 0) scale(1.10); }
+    }
+    /* Dotted grid: transparent, layered on top of the gradient above */
+    #grid {
+        position: fixed; inset: 0; z-index: 0; pointer-events: none;
+        background-image:
+            linear-gradient(rgba(17,17,16,.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(17,17,16,.05) 1px, transparent 1px),
+            radial-gradient(rgba(17,17,16,.12) 1.3px, transparent 1.4px);
+        background-size: 120px 120px, 120px 120px, 22px 22px;
+    }
+    /* Giant watermark anchor */
+    #watermark {
+        position: fixed; left: 12px; top: -8px; z-index: 0; pointer-events: none;
+        font-family: "Helvetica Neue", Arial, sans-serif; font-weight: 800;
+        font-size: clamp(70px, 13vw, 200px); line-height: .86; letter-spacing: -5px;
+        text-transform: uppercase; color: rgba(20,20,17,.13);
+    }
+
+    #viewport { position: fixed; inset: 0; z-index: 1; overflow: hidden;
+                cursor: grab; touch-action: none; }
+    #viewport.panning { cursor: grabbing; }
+
+    #world { position: absolute; top: 0; left: 0; width: 5200px; height: 4000px;
+             transform-origin: 0 0; will-change: transform; }
+
+    /* ── Orthogonal edges: bold solid black lines ───────────────────────── */
+    /* [z-layer 20] orthogonal edges */
+    #edges { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }
+    #edges path { fill: none; stroke: var(--black); stroke-width: 2; }
+    #edges .j { fill: var(--black); }                     /* small black squares at bend points */
+    /* Hover: the edge turns blue and thicker + marching-ants data flow */
+    #edges .edge.hl path { stroke: var(--accent); stroke-width: 3;
+                           stroke-dasharray: 9 7; animation: dashFlow .55s linear infinite; }
+    #edges .edge.hl .j { fill: var(--accent); }
+    @keyframes dashFlow { to { stroke-dashoffset: -16; } }
+    #world.focusing .edge:not(.hl) { opacity: .12; }
+    #world.focusing .sat-node:not(.hl) { opacity: .25; }
+    #world.focusing .source-stack { opacity: .6; }
+    .edge, .node, .glass { transition: opacity .15s; }
+
+    /* [z-layer 10] frosted-glass ambience: sits at the bottom, pointer-events:none, never blocks edges/nodes */
+    #glass { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+    /* Dark-gray translucent "glitch pixel" blocks: sharp edges, no blur (same grain as homepage) */
+    .glass {
+        position: absolute; transform: translate(-50%, -50%);   /* centered (via transform) */
+        background: rgba(0,0,0,.045);
+        border: 1px solid rgba(0,0,0,.07);
+        box-shadow: 1px 1px 0 rgba(0,0,0,.05);
+        /* floating uses the standalone translate property, so it doesn't affect the centering transform above */
+        animation: glassFloat 24s ease-in-out infinite;
+        will-change: translate;
+    }
+    /* Slow float (period >15s) */
+    @keyframes glassFloat {
+        0%, 100% { translate: 0 0; }
+        33%      { translate: 18px -13px; }
+        66%      { translate: -13px 11px; }
+    }
+
+    /* ── Nodes: white bg + 2px black border + 4px hard black shadow ─────── */
+    .node { position: absolute; transform: translate(-50%, -50%);
+            background: var(--paper); color: var(--ink);
+            border: 2px solid var(--black); }
+
+    /* [z-layer 30] shattered center photo */
+    .source-stack { width: 300px; background: transparent; border: none; z-index: 30; }
+    /* Broken brutalist solid container: black border + black shadow + paper bg, fragments may overflow the edges */
+    /* Frame of order: thick black border + hard black shadow; overflow:hidden locks the chaotic fragments inside */
+    .frag-field { position: relative; width: 300px; overflow: hidden;
+                  background: #141414; border: 2px solid var(--black);
+                  box-shadow: 5px 5px 0 var(--black); }
+    /* [z-layer 40] info tag: solid background so the edges behind it don't distract the eye */
+    .source-tag { position: relative; z-index: 40; align-self: flex-start;
+                  display: inline-block; background: var(--bg);
+                  padding: 3px 8px; border: 1px solid var(--black);
+                  font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+                  color: var(--ink); margin-bottom: 10px; }
+    /* Fragments: pure image slices, no border/background -> initially they tile seamlessly into the full image, no white gaps */
+    .frag { position: absolute; background-repeat: no-repeat; }
+    /* Ghost base image: a full copy of the original right under the fragments, dark gray and opaque; offsets reveal the dark original instead of a white background */
+    .frag-ghost { position: absolute; inset: 0; background-repeat: no-repeat;
+                  filter: grayscale(1) brightness(.4); pointer-events: none; }
+
+    /* [z-layer 50] satellite nodes: topmost layer, so hover/click is never blocked by any other layer */
+    .sat-node {
+        cursor: pointer; padding: 10px 14px; min-width: 116px; z-index: 50;
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--ink);
+        box-shadow: 4px 4px 0 var(--black);
+    }
+    .sat-node .dot { width: 7px; height: 7px; background: var(--black); flex: none; }
+    .sat-node .pre { color: var(--accent); }
+    .sat-node:hover { transform: translate(-50%, -50%) translate(-2px, -2px);
+                      box-shadow: 7px 7px 0 var(--black); }
+    .sat-node:active { transform: translate(-50%, -50%) translate(2px, 2px); box-shadow: 1px 1px 0 var(--black); }
+
+    /* ── HUD ──────────────────────────────────────────── */
+    .hud { position: fixed; z-index: 100; font-size: 10px; letter-spacing: 1.5px;
+           text-transform: uppercase; color: rgba(17,17,16,.6); pointer-events: none; }
+    .hud.tl { top: 18px; left: 20px; } .hud.tr { top: 18px; right: 20px; text-align: right; }
+    .hud.bl { bottom: 18px; left: 20px; } .hud b { color: var(--ink); }
+
+    /* ── Focus Mode (bright brutalist modal) ───────────────── */
+    /* Dimmed field: translucent black overlay + very subtle blur, background recedes */
+    #focus { position: fixed; inset: 0; z-index: 1000; display: none;
+             background: rgba(0,0,0,.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+             justify-content: center; align-items: center; padding: 5vh 5vw; }
+    #focus.show { display: flex; }
+    /* Hardcore white box: 4px black border + 15px black no-blur offset shadow */
+    .focus-card {
+        position: relative;
+        width: min(1000px, 94vw); max-height: 88vh; overflow: visible;
+        background: #fff; color: var(--ink);
+        border: 4px solid #000; box-shadow: 15px 15px 0 #000;
+        display: grid; grid-template-columns: 1fr 1.1fr;
+        transform: scale(.92); opacity: 0;
+        transition: transform .3s cubic-bezier(.2,1.1,.3,1), opacity .2s ease;
+    }
+    #focus.show .focus-card { transform: scale(1); opacity: 1; }
+    @media (max-width: 720px) { .focus-card { grid-template-columns: 1fr; max-height: 90vh; overflow-y: auto; } }
+
+    /* Left pane [ PROMPT LOG ] */
+    .focus-left { padding: 24px; border-right: 4px solid #000; display: flex; flex-direction: column; min-width: 0; }
+    @media (max-width: 720px) { .focus-left { border-right: none; border-bottom: 4px solid #000; } }
+    .pane-tag { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #5b5950; font-weight: 700; }
+    .focus-left h2 { font-family: "Helvetica Neue", Arial, sans-serif; font-weight: 800;
+                     font-size: 30px; letter-spacing: -1px; margin: 8px 0 16px; }
+    .terminal { background: #0c0f0c; color: #46d17a; border: 2px solid #000;
+                padding: 16px; font-size: 12.5px; line-height: 1.75; flex: 1;
+                min-height: 180px; max-height: 52vh; overflow-y: auto;
+                white-space: pre-wrap; word-break: break-word; }
+    .terminal .tw-caret { display: inline-block; width: 8px; background: #46d17a;
+                          animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+
+    /* Right pane [ 3D ASSET ]: pure black container */
+    .focus-right { position: relative; background: #000; min-height: 380px; overflow: hidden; }
+    /* 2D object preview image */
+    .mv-preview { width: 100%; height: 100%; min-height: 380px; object-fit: contain; display: block; }
+    .focus-right model-viewer { width: 100%; height: 100%; min-height: 380px; display: block; background: #000; }
+    /* Download buttons inside Focus (bottom-right, PNG / GLB can sit side by side) */
+    .dl-row { position: absolute; right: 12px; bottom: 12px; z-index: 4; display: flex; gap: 8px; }
+    .dl { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+          background: #fff; color: #000; border: 2px solid #000; padding: 6px 10px; text-decoration: none;
+          box-shadow: 3px 3px 0 var(--accent); transition: transform .1s; }
+    .dl:hover { transform: translate(-1px, -1px); }
+    /* Hover preview card: 2D image + prompt + download */
+    #hovercard { position: fixed; z-index: 60; width: 230px; display: none;
+                 background: #fff; border: 2px solid #000; box-shadow: 6px 6px 0 #000; }
+    #hovercard.show { display: block; }
+    #hcImg { width: 100%; height: 140px; object-fit: contain; background: #0b0e1a;
+             display: block; border-bottom: 2px solid #000; }
+    #hcBody { padding: 9px 11px; }
+    #hcText { font-size: 10px; line-height: 1.55; color: #111;
+              display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    #hcDl { display: inline-block; margin-top: 8px; font-size: 9px; font-weight: 700; letter-spacing: 1px;
+            text-transform: uppercase; color: #000; text-decoration: none; border-bottom: 2px solid var(--accent); }
+    #hcDl:hover { color: var(--accent); }
+    .pane-tag-3d { position: absolute; top: 12px; left: 12px; z-index: 2; pointer-events: none;
+                   font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #cfd6ff; font-weight: 700; }
+
+    /* Giant [ X ] close button: slammed onto the top-right corner, shifts on hover */
+    .focus-close { position: absolute; top: -4px; right: -4px; z-index: 5; cursor: pointer;
+        font-family: var(--mono); font-size: 18px; font-weight: 800; letter-spacing: 1px;
+        background: #000; color: #fff; border: 4px solid #000; padding: 10px 16px;
+        box-shadow: 6px 6px 0 var(--accent); transition: transform .12s, box-shadow .12s; }
+    .focus-close:hover { transform: translate(-3px,-3px); box-shadow: 10px 10px 0 var(--accent); }
+    .focus-close:active { transform: translate(3px,3px); box-shadow: 2px 2px 0 var(--accent); }
+    </style>
+</head>
+<body>
+
+<div id="aura"></div>
+<div id="grid"></div>
+<div id="watermark">TOPOLOGY<br>MAP</div>
+
+<div id="viewport">
+    <div id="world">
+        <div id="glass"></div>       <!-- z-layer 10 frosted glass (at the bottom, pointer-events:none) -->
+        <svg id="edges"></svg>       <!-- z-layer 20 orthogonal edges -->
+        <!-- z-layer 30 center fragments / z-layer 50 satellite nodes: both injected into #world by JS -->
+    </div>
+</div>
+
+<div class="hud tl"><b>MEMORY RECONSTRUCTION</b><br>NEURAL TOPOLOGY</div>
+<div class="hud tr">DRAG TO PAN · SCROLL / PINCH TO ZOOM</div>
+<div class="hud bl"><span id="zoomReadout">ZOOM 80%</span> · <span id="nodeCount">0</span> NODES</div>
+
+<div id="focus">
+    <div class="focus-card">
+        <button class="focus-close" id="focusClose">[ X ]</button>
+        <div class="focus-left">
+            <span class="pane-tag">[ Prompt Log ]</span>
+            <h2 id="focusTitle">OBJ_00</h2>
+            <div class="terminal" id="focusTerminal"></div>
+        </div>
+        <div class="focus-right">
+            <span class="pane-tag-3d">[ Preview ]</span>
+            <div id="mvHost"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Hover preview card -->
+<div id="hovercard">
+    <img id="hcImg" src="" alt="">
+    <div id="hcBody">
+        <div id="hcText"></div>
+        <a id="hcDl" href="" download>&darr; Download</a>
+    </div>
+</div>
+
+<script>
+const NODES  = {{ nodes|tojson }};
+const SOURCE = {{ source_url|tojson }};
+
+const world    = document.getElementById('world');
+const viewport = document.getElementById('viewport');
+const edges    = document.getElementById('edges');
+const glass = document.getElementById('glass');
+const WORLD_W = 5200, WORLD_H = 4000;
+const CX = WORLD_W / 2, CY = WORLD_H / 2;
+const nodeCenters = [];
+const satEls = [];
+let edgeGroups = [];
+
+/* Shattered center photo: fixed display width W; load the original to get its aspect ratio -> slice into N horizontal strips;
+ * each strip shows its own row of the image via background-position-y, offset by its own translateX + hard shadow. */
+function buildSource() {
+    const stack = document.createElement('div');
+    stack.className = 'node source-stack';
+    stack.style.left = CX + 'px'; stack.style.top = CY + 'px';
+    const tag = document.createElement('div');
+    tag.className = 'source-tag'; tag.textContent = '[ SOURCE ]';
+    const field = document.createElement('div');
+    field.className = 'frag-field';
+    stack.appendChild(tag);
+    stack.appendChild(field);
+    world.appendChild(stack);
+
+    const W = 300, MAX_OFF = 8;             // container width; offset transform capped at ±8px
+
+    const img = new Image();
+    img.onload = () => {
+        const CONTAINER_W = W;
+        const CONTAINER_H = Math.round(W * img.naturalHeight / img.naturalWidth);
+        field.style.height = CONTAINER_H + 'px';
+
+        // Ghost base image (bottom layer): full original, dim and gray; offsets reveal it instead of a white background
+        const ghost = document.createElement('div');
+        ghost.className = 'frag-ghost';
+        ghost.style.backgroundImage = 'url("' + SOURCE + '")';
+        ghost.style.backgroundSize = CONTAINER_W + 'px ' + CONTAINER_H + 'px';
+        field.appendChild(ghost);
+
+        // Horizontal scanline slicing: many low-height "wide strips"; a few rows get further cut vertically into 2-3 wide segments (not a grid)
+        const rects = [];
+        let yy = 0;
+        while (yy < CONTAINER_H) {
+            let h = 4 + Math.round(Math.random() * Math.random() * 26);   // 4-30px, biased toward thin
+            if (yy + h > CONTAINER_H) h = CONTAINER_H - yy;
+            const cuts = [0];
+            const segs = Math.random() < 0.55 ? 1 : (Math.random() < 0.7 ? 2 : 3);  // most rows stay uncut
+            for (let s = 1; s < segs; s++) {
+                cuts.push(Math.round(CONTAINER_W * s / segs + (Math.random() * 2 - 1) * 30));
+            }
+            cuts.push(CONTAINER_W);
+            cuts.sort((a, b) => a - b);
+            for (let s = 0; s < cuts.length - 1; s++) {
+                const left = Math.max(0, cuts[s]);
+                const w = Math.min(CONTAINER_W, cuts[s + 1]) - left;
+                if (w > 2) rects.push([left, yy, w, h]);
+            }
+            yy += h;
+        }
+
+        for (const [left, top, w, h] of rects) {
+            const f = document.createElement('div');
+            f.className = 'frag';
+            f.style.left = left + 'px';
+            f.style.top = top + 'px';
+            f.style.width = w + 'px';
+            f.style.height = h + 'px';
+            // Absolute mapping: background = full image, size = full container size, position = negative left/top -> assembled they reproduce the original
+            f.style.backgroundImage = 'url("' + SOURCE + '")';
+            f.style.backgroundSize = CONTAINER_W + 'px ' + CONTAINER_H + 'px';
+            f.style.backgroundPosition = '-' + left + 'px -' + top + 'px';
+            // Scanline tearing: mostly horizontal offsets (±8px), very slight vertical (±2px), overlap allowed; gaps reveal the dark ghost image
+            const ox = (Math.random() * 2 - 1) * MAX_OFF;
+            const oy = (Math.random() * 2 - 1) * 2;
+            f.style.transform = 'translate(' + ox.toFixed(1) + 'px, ' + oy.toFixed(1) + 'px)';
+            field.appendChild(f);
+        }
+    };
+    img.onerror = () => {
+        field.style.height = '200px';
+        const d = document.createElement('div');
+        d.style.cssText = 'position:absolute;inset:0;border:2px solid #000;background:#ddd';
+        field.appendChild(d);
+    };
+    img.src = SOURCE;
+}
+
+/* Satellite nodes */
+function buildSatellites() {
+    const GOLDEN = 2.399963;
+    NODES.forEach((n, i) => {
+        const ring = Math.floor(i / 8);
+        const r = 380 + ring * 250 + (i % 8) * 6;
+        const ang = i * GOLDEN;
+        const x = CX + r * Math.cos(ang), y = CY + r * Math.sin(ang);
+        nodeCenters[i] = { x, y };
+
+        const el = document.createElement('div');
+        el.className = 'node sat-node';
+        el.style.left = x + 'px'; el.style.top = y + 'px';
+        el.innerHTML = '<span class="dot"></span><span class="pre">&gt;</span> ' + n.label;
+        el.addEventListener('click', (e) => { e.stopPropagation(); diveTo(i); setTimeout(() => openFocus(n), 520); });
+        el.addEventListener('pointerenter', () => { setFocusHover(i, true); showHover(n, el); });
+        el.addEventListener('pointerleave', () => { setFocusHover(i, false); scheduleHideHover(); });
+        world.appendChild(el);
+        satEls[i] = el;
+    });
+}
+function setFocusHover(i, on) {
+    world.classList.toggle('focusing', on);
+    if (satEls[i]) satEls[i].classList.toggle('hl', on);
+    if (edgeGroups[i]) edgeGroups[i].classList.toggle('hl', on);
+}
+
+/* Orthogonal edges (solid black lines + black squares at bend points) */
+function buildEdges() {
+    edges.setAttribute('viewBox', '0 0 ' + WORLD_W + ' ' + WORLD_H);
+    edges.setAttribute('width', WORLD_W); edges.setAttribute('height', WORLD_H);
+    let html = '';
+    nodeCenters.forEach((p, i) => {
+        const mx = (CX + p.x) / 2;
+        const d = 'M ' + CX + ' ' + CY + ' H ' + mx + ' V ' + p.y + ' H ' + p.x;
+        html += '<g class="edge" data-i="' + i + '">'
+              + '<path d="' + d + '"></path>'
+              + '<rect class="j" x="' + (CX - 2) + '" y="' + (CY - 2) + '" width="4" height="4"></rect>'
+              + '<rect class="j" x="' + (mx - 2) + '" y="' + (CY - 2) + '" width="4" height="4"></rect>'
+              + '<rect class="j" x="' + (mx - 2) + '" y="' + (p.y - 2) + '" width="4" height="4"></rect>'
+              + '<rect class="j" x="' + (p.x - 2) + '" y="' + (p.y - 2) + '" width="4" height="4"></rect>'
+              + '</g>';
+    });
+    edges.innerHTML = html;
+    edgeGroups = Array.from(edges.querySelectorAll('.edge'));
+}
+
+/* Frosted-glass blocks: two layers, behind + in front */
+function buildGlass() {
+    const make = (count, front) => {
+        const host = glass;
+        for (let k = 0; k < count; k++) {
+            const g = document.createElement('div');
+            g.className = 'glass' + (front ? ' front' : '');
+            const sz = 70 + Math.random() * 180;
+            const ang = Math.random() * Math.PI * 2;
+            const rad = 120 + Math.random() * 1500;
+            g.style.width = sz + 'px';
+            g.style.height = (sz * (0.6 + Math.random() * 0.8)) + 'px';
+            g.style.left = (CX + Math.cos(ang) * rad) + 'px';
+            g.style.top  = (CY + Math.sin(ang) * rad) + 'px';
+            g.style.background = 'rgba(0,0,0,' + (0.03 + Math.random() * 0.055).toFixed(3) + ')'; // varying darkness
+            g.style.animationDuration = (18 + Math.random() * 16).toFixed(1) + 's';  // 18–34s
+            g.style.animationDelay = (-Math.random() * 20).toFixed(1) + 's';          // staggered phases
+            host.appendChild(g);
+        }
+    };
+    make(16, false);
+    make(7, true);
+}
+
+/* Pan / zoom / pinch */
+let scale = 0.8, tx = 0, ty = 0;
+const MIN = 0.3, MAX = 2.4;
+const clamp = (v) => Math.min(MAX, Math.max(MIN, v));
+function apply() {
+    world.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+    document.getElementById('zoomReadout').textContent = 'ZOOM ' + Math.round(scale * 100) + '%';
+}
+function centerOnSource() {
+    tx = window.innerWidth / 2 - CX * scale;
+    ty = window.innerHeight / 2 - CY * scale;
+    apply();
+}
+function zoomAround(ns, cx, cy) {
+    tx = cx - (cx - tx) * (ns / scale);
+    ty = cy - (cy - ty) * (ns / scale);
+    scale = ns; apply();
+}
+const pointers = new Map();
+let panning = false, sx = 0, sy = 0, pinchPrev = null;
+function pinchState() {
+    const ps = [...pointers.values()];
+    const dx = ps[0].x - ps[1].x, dy = ps[0].y - ps[1].y;
+    return { dist: Math.hypot(dx, dy), mx: (ps[0].x + ps[1].x) / 2, my: (ps[0].y + ps[1].y) / 2 };
+}
+viewport.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    viewport.setPointerCapture(e.pointerId);
+    if (pointers.size === 1) { panning = true; sx = e.clientX; sy = e.clientY; viewport.classList.add('panning'); }
+    else if (pointers.size === 2) { panning = false; pinchPrev = pinchState(); }
+});
+viewport.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = viewport.getBoundingClientRect();
+    if (pointers.size === 2) {
+        const cur = pinchState();
+        if (pinchPrev) {
+            zoomAround(clamp(scale * (cur.dist / pinchPrev.dist)), cur.mx - r.left, cur.my - r.top);
+            tx += cur.mx - pinchPrev.mx; ty += cur.my - pinchPrev.my; apply();
+        }
+        pinchPrev = cur;
+    } else if (panning && pointers.size === 1) {
+        const dx = e.clientX - sx, dy = e.clientY - sy;
+        tx += dx; ty += dy; sx = e.clientX; sy = e.clientY; apply();
+    }
+});
+function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchPrev = null;
+    if (pointers.size === 0) { panning = false; viewport.classList.remove('panning'); }
+    else if (pointers.size === 1) { const p = [...pointers.values()][0]; sx = p.x; sy = p.y; panning = true; }
+}
+viewport.addEventListener('pointerup', endPointer);
+viewport.addEventListener('pointercancel', endPointer);
+viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = viewport.getBoundingClientRect();
+    zoomAround(clamp(scale * (1 - e.deltaY * 0.0015)), e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
+
+/* Focus Mode */
+const focus = document.getElementById('focus');
+const mvHost = document.getElementById('mvHost');
+const terminal = document.getElementById('focusTerminal');
+let twTimer = null;
+function typewriter(text) {
+    clearInterval(twTimer);
+    terminal.textContent = '';
+    const caret = document.createElement('span');
+    caret.className = 'tw-caret'; caret.innerHTML = '&nbsp;';
+    terminal.appendChild(caret);
+    let i = 0;
+    twTimer = setInterval(() => {
+        if (i >= text.length) { clearInterval(twTimer); return; }
+        caret.insertAdjacentText('beforebegin', text[i++]);
+    }, 18);
+}
+/* Seamless dive: camera rushes in on the node -> Focus's frosted glass blurs the background -> pulls back on close */
+let savedView = null;
+function diveTo(i) {
+    const c = nodeCenters[i];
+    if (!c) return;
+    savedView = { tx, ty, scale };
+    const ns = 2.6;
+    world.style.transition = 'transform .6s cubic-bezier(.5,0,.15,1)';
+    tx = window.innerWidth / 2 - c.x * ns;
+    ty = window.innerHeight / 2 - c.y * ns;
+    scale = ns; apply();
+    setTimeout(() => { world.style.transition = ''; }, 640);
+}
+function surface() {
+    if (!savedView) return;
+    const v = savedView; savedView = null;
+    world.style.transition = 'transform .5s ease';
+    tx = v.tx; ty = v.ty; scale = v.scale; apply();
+    setTimeout(() => { world.style.transition = ''; }, 520);
+}
+
+function openFocus(n) {
+    document.getElementById('focusTitle').textContent = n.label;
+    typewriter('> parsing ' + n.label + ' ...\n\n' + n.prompt);
+    hovercard.classList.remove('show');
+    // Always show the 2D object image; when a 3D model exists, also offer a GLB download (no embedded turntable preview)
+    const glbBtn = n.glb ? '<a class="dl" href="' + n.glb + '" target="_blank" download>&darr; GLB</a>' : '';
+    mvHost.innerHTML =
+        '<img class="mv-preview" src="' + n.img + '" alt="' + n.label + '">'
+        + '<div class="dl-row"><a class="dl" href="' + n.img + '" download>&darr; PNG</a>' + glbBtn + '</div>';
+    focus.classList.add('show');
+}
+function closeFocus() {
+    focus.classList.remove('show');
+    clearInterval(twTimer);
+    mvHost.innerHTML = '';
+    surface();   // camera returns to its original position
+}
+document.getElementById('focusClose').addEventListener('click', closeFocus);
+focus.addEventListener('click', (e) => { if (e.target === focus) closeFocus(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFocus(); });
+
+/* Hover preview card: mouse over a node -> show 2D image + prompt + download */
+const hovercard = document.getElementById('hovercard');
+const hcImg = document.getElementById('hcImg');
+const hcText = document.getElementById('hcText');
+const hcDl = document.getElementById('hcDl');
+let hcTimer = null;
+function showHover(n, el) {
+    const r = el.getBoundingClientRect();
+    hcImg.src = n.img; hcText.textContent = n.prompt;
+    // Download the model if a 3D model exists, otherwise fall back to the 2D image
+    if (n.glb) { hcDl.href = n.glb; hcDl.target = '_blank'; hcDl.innerHTML = '&darr; Download model'; }
+    else { hcDl.href = n.img; hcDl.removeAttribute('target'); hcDl.innerHTML = '&darr; Download image'; }
+    let left = r.right + 12;
+    if (left + 230 > window.innerWidth) left = r.left - 242;   // if it doesn't fit on the right, place it on the left
+    hovercard.style.left = Math.max(8, left) + 'px';
+    hovercard.style.top = Math.max(8, Math.min(window.innerHeight - 240, r.top)) + 'px';
+    hovercard.classList.add('show');
+    clearTimeout(hcTimer);
+}
+function scheduleHideHover() { clearTimeout(hcTimer); hcTimer = setTimeout(() => hovercard.classList.remove('show'), 240); }
+hovercard.addEventListener('pointerenter', () => clearTimeout(hcTimer));   // keep the card visible while hovering it, so the download link is clickable
+hovercard.addEventListener('pointerleave', scheduleHideHover);
+
+/* Init */
+buildGlass();
+buildSatellites();   // must run before buildEdges: edges depend on the node center coordinates
+buildEdges();
+buildSource();
+document.getElementById('nodeCount').textContent = NODES.length;
+centerOnSource();
+window.addEventListener('resize', centerOnSource);
+
+/* Four-moment switcher buttons: shown when the task has moments; clicking has the server drive UE to switch presets in place */
+(async () => {
+    const tid = new URLSearchParams(location.search).get('task');
+    if (!tid) return;
+    try {
+        const d = await (await fetch('/result/' + tid)).json();
+        const moms = Object.keys(d.moments || {});
+        if (!moms.length) return;
+        const bar = document.createElement('div');
+        bar.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);' +
+            'display:flex;gap:8px;z-index:60;background:rgba(10,14,22,.78);padding:8px 12px;' +
+            'border-radius:12px;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12)';
+        const NAMES = {base: '☀ 原片', noon: '🌞 正午', dusk: '🌆 黄昏', night: '🌙 夜', rain: '🌧 雨'};
+        for (const m of ['base', 'noon', 'dusk', 'night', 'rain']) {
+            if (!moms.includes(m)) continue;
+            const b = document.createElement('button');
+            b.textContent = NAMES[m] || m;
+            b.style.cssText = 'padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.18);' +
+                'background:rgba(255,255,255,.06);color:#dfe7f3;cursor:pointer;font-size:13px';
+            b.onclick = async () => {
+                bar.querySelectorAll('button').forEach(x => x.disabled = true);
+                b.textContent = '⏳ ' + (NAMES[m] || m);
+                try {
+                    const r = await (await fetch('/moment/' + tid + '/' + m, {method: 'POST'})).json();
+                    b.textContent = (r.ok ? '✓ ' : '✗ ') + (NAMES[m] || m);
+                } catch (e) { b.textContent = '✗ ' + (NAMES[m] || m); }
+                setTimeout(() => { b.textContent = NAMES[m] || m;
+                    bar.querySelectorAll('button').forEach(x => x.disabled = false); }, 1500);
+            };
+            bar.appendChild(b);
+        }
+        document.body.appendChild(bar);
+    } catch (e) { /* silent: legacy tasks have no moments */ }
+})();
+</script>
+
+</body>
+</html>

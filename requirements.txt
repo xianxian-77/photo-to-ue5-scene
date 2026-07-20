@@ -1,0 +1,7 @@
+flask
+google-genai
+pillow
+numpy
+scipy
+requests
+miniaudio

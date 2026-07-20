@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets — local key file, never committed (copy apikeys.local.json.example and fill in)
+apikeys.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+output/
+uploads/
+hdri_cache/
+flask.log
