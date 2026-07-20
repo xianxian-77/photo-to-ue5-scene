@@ -36,8 +36,8 @@ python ue_deploy_library.py [<工程目录>]     # 缺省 H:\5.7TEST\TEST5_71
 - 已端到端验证（`output/mat_test/exp/int1_dry.png`=干三层混合、`int2_wet.png`=湿出积水）。
 - **待接（下一步）**：平场路径（`_apply_ground`/`_apply_ground_skirt` 是世界对齐平铺，需世界对齐变体）；Gemini 按 biome 选遮罩/覆盖率系数（暗化遮罩=连续覆盖率旋钮）；FX 水面换 Gerstner。
 
-## 6. 注意（VR / 工程设置）
-- 这套带 Tessellation/Displacement，双目 90Hz 很贵；PCVR 优先用不带位移的设置。
+## 6. 注意（性能 / 工程设置）
+- 这套带 Tessellation/Displacement，高帧率下开销很大；性能敏感时优先用不带位移的设置。
 - RVT 变体需 Project Settings ▸ Rendering ▸ Enable virtual texture support（当前只 bundle 了 `MA_Blend` 基础变体，未含 RVT）。
 - 许可按素材来源；论文 demo 用途没问题，注明出处即可。
 

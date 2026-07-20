@@ -2,22 +2,22 @@
 
 *MA Design Informatics dissertation project · The University of Edinburgh · 2026*
 
-Given **one input photo**, the system automatically reconstructs it into a game scene that can be freely explored in Unreal Engine 5.7, ultimately presented as **PCVR** (PC + headset, demonstrated via UE "VR Preview").
+Given **one input photo**, the system automatically reconstructs it into a game scene that can be freely explored in Unreal Engine 5.7.
 
 ## The four case scenes
 
-| Case | Input photo | Reconstruction (photo-camera view) | In-game view |
-|---|---|---|---|
-| **Forest lake** | <img src="docs/figures/forest_input.jpg" height="170"> | <img src="docs/figures/forest_recon.jpg" height="170"> | <img src="docs/figures/forest_scene.jpg" height="170"> |
-| **Indoor living room** | <img src="docs/figures/indoor_input.jpg" height="170"> | <img src="docs/figures/indoor_recon.jpg" height="170"> | <img src="docs/figures/indoor_scene.jpg" height="170"> |
-| **Rain alley** | <img src="docs/figures/rain_input.jpg" height="170"> | <img src="docs/figures/rain_recon.jpg" height="170"> | <img src="docs/figures/rain_scene.jpg" height="170"> |
-| **Street at night** | <img src="docs/figures/street_input.jpg" height="170"> | <img src="docs/figures/street_recon.jpg" height="170"> | <img src="docs/figures/street_scene.jpg" height="170"> |
+| Case | Reconstruction (photo-camera view) | In-game view |
+|---|---|---|
+| **Forest lake** | <img src="docs/figures/forest_recon.jpg" height="200"> | <img src="docs/figures/forest_scene.jpg" height="200"> |
+| **Indoor living room** | <img src="docs/figures/indoor_recon.jpg" height="200"> | <img src="docs/figures/indoor_scene.jpg" height="200"> |
+| **Rain alley** | <img src="docs/figures/rain_recon.jpg" height="200"> | <img src="docs/figures/rain_scene.jpg" height="200"> |
+| **Street at night** | <img src="docs/figures/street_recon.jpg" height="200"> | <img src="docs/figures/street_scene.jpg" height="200"> |
 
 Core principles: **deterministic, theory-driven, fully generic (no per-scene special cases), AI-decided content (Gemini determines what the scene contains), code/API-driven (no manual edits in UE), portable across projects, and trust nothing until it has been verified**.
 
 ## Pipeline (one photo → one scene)
 
-`Photo → Gemini perception (space/environment/lighting/objects) → Gemini object image generation → Tripo3D image-to-3D → Depth-Anything terrain inference → projection layout → props/FX → UE assembly (sky/terrain/lighting/atmosphere/objects/VR) → PCVR`
+`Photo → Gemini perception (space/environment/lighting/objects) → Gemini object image generation → Tripo3D image-to-3D → Depth-Anything terrain inference → projection layout → props/FX → UE assembly (sky/terrain/lighting/atmosphere/objects) → walkable game scene`
 
 - **Gemini**: all 2D understanding and image generation (object images, HDRI panoramas, terrain textures, prop/FX textures).
 - **Tripo3D**: image → 3D mesh only (main subject at detailed+HD, everything else on Turbo).
@@ -39,7 +39,7 @@ photo-to-ue5-scene/
 └── docs/                 Setup notes referenced by the code (material library / Niagara / indoor shell / water / rain / light params / alpha masks)
 ```
 
-Not included in this code release: the bundled UE material library `ue_library/` (~290 MB of binary UE assets), runtime artifacts (`output/`, `uploads/`, `hdri_cache/`), sample photos, development/diagnostic scripts, and thesis figures/manuscripts.
+Not included in this code release: the bundled UE material library `ue_library/` (~290 MB of binary UE assets), runtime artifacts (`output/`, `uploads/`, `hdri_cache/`), sample photos, and development/diagnostic scripts.
 
 > **Do not move the runtime files**: `pipeline_server.py` locates `output/` and `uploads/` via `os.path.dirname(__file__)`, and Flask looks for `templates/` next to it by default.
 
@@ -64,9 +64,3 @@ $env:PYTHONUTF8=1; $env:PYTHONIOENCODING="utf-8"; python pipeline_server.py     
 
 `ENABLE_HDRI / ENABLE_TERRAIN / ENABLE_FX`; `FAST_MODE=True` downgrades everything with one switch to save cost (the main subject also runs on Turbo, etc.).
 
-## Pipeline stage illustrations
-
-| Stage | |
-|---|---|
-| Hero building reconstructed in UE (Tripo3D image-to-3D) | <img src="docs/figures/hero_building_in_ue.jpg" width="480"> |
-| Lighting & atmosphere pass (golden hour) | <img src="docs/figures/lighting_golden_hour.jpg" width="480"> |
