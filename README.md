@@ -64,3 +64,7 @@ $env:PYTHONUTF8=1; $env:PYTHONIOENCODING="utf-8"; python pipeline_server.py     
 
 `ENABLE_HDRI / ENABLE_TERRAIN / ENABLE_FX`; `FAST_MODE=True` downgrades everything with one switch to save cost (the main subject also runs on Turbo, etc.).
 
+## Contact
+
+Questions about this project: **yizhouwang0629@gmail.com**
+
