@@ -4,9 +4,14 @@
 
 Given **one input photo**, the system automatically reconstructs it into a game scene that can be freely explored in Unreal Engine 5.7, ultimately presented as **PCVR** (PC + headset, demonstrated via UE "VR Preview").
 
-| Input photo | Final walkable scene (player view) |
-|---|---|
-| <img src="docs/figures/input_photo.jpg" height="260"> | <img src="docs/figures/final_player_view.jpg" height="260"> |
+## The four case scenes
+
+| Case | Input photo | Reconstruction (photo-camera view) | In-game view |
+|---|---|---|---|
+| **Forest lake** | <img src="docs/figures/forest_input.jpg" height="170"> | <img src="docs/figures/forest_recon.jpg" height="170"> | <img src="docs/figures/forest_scene.jpg" height="170"> |
+| **Indoor living room** | <img src="docs/figures/indoor_input.jpg" height="170"> | <img src="docs/figures/indoor_recon.jpg" height="170"> | <img src="docs/figures/indoor_scene.jpg" height="170"> |
+| **Rain alley** | <img src="docs/figures/rain_input.jpg" height="170"> | <img src="docs/figures/rain_recon.jpg" height="170"> | <img src="docs/figures/rain_scene.jpg" height="170"> |
+| **Street at night** | <img src="docs/figures/street_input.jpg" height="170"> | <img src="docs/figures/street_recon.jpg" height="170"> | <img src="docs/figures/street_scene.jpg" height="170"> |
 
 Core principles: **deterministic, theory-driven, fully generic (no per-scene special cases), AI-decided content (Gemini determines what the scene contains), code/API-driven (no manual edits in UE), portable across projects, and trust nothing until it has been verified**.
 
@@ -59,10 +64,9 @@ $env:PYTHONUTF8=1; $env:PYTHONIOENCODING="utf-8"; python pipeline_server.py     
 
 `ENABLE_HDRI / ENABLE_TERRAIN / ENABLE_FX`; `FAST_MODE=True` downgrades everything with one switch to save cost (the main subject also runs on Turbo, etc.).
 
-## Results
+## Pipeline stage illustrations
 
 | Stage | |
 |---|---|
 | Hero building reconstructed in UE (Tripo3D image-to-3D) | <img src="docs/figures/hero_building_in_ue.jpg" width="480"> |
 | Lighting & atmosphere pass (golden hour) | <img src="docs/figures/lighting_golden_hour.jpg" width="480"> |
-| Final assembled scene, player view | <img src="docs/figures/final_player_view.jpg" width="480"> |
